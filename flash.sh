@@ -7,9 +7,42 @@
 # --------------------------------------------------------------------------
 set -e
 
-TARGET=$1
-STUBFS=$2
-PAYLOAD=$3
+usage ()
+{
+    echo $0 error: $1
+    echo "      " $0 "-s stubfs.tgz -p payload.tgz -t user@remote"
+    echo "         -s stubfs.tgz : minimal linux rootfs"
+    echo "         -p payload.img or payload.tgz : system to install"
+    echo "         -t user@remote : machine to install through SSH"
+    exit 1
+}
+
+if [[ $# != 6 ]] ; then
+    usage "Bad number of arguments"
+fi
+
+while getopts "s:p:t:" OPTION; do
+    case $OPTION in
+    s)
+        STUBFS=$OPTARG
+        ;;
+    p)
+        PAYLOAD=$OPTARG
+        ;;
+    t)
+        TARGET=$OPTARG
+        ;;
+    *)
+        exit 1
+        ;;
+    esac
+done
+
+[[ -z $PAYLOAD ]] && usage "Missing payload"
+[[ -z $STUBFS  ]] && usage "Missing stubfs"
+[[ -z $TARGET  ]] && usage "Missing stubfs"
+
+TARGETMACH=$(echo $TARGET | awk 'BEGIN{FS="@"} {print $NF}')
 
 # 0- copy SSH key to remote system
 ssh-copy-id  -i ~/.ssh/id_rsa.pub ${TARGET}
@@ -28,7 +61,7 @@ ssh -t ${TARGET} sudo /usr/local/bin/takeover.sh
 # 4 - remote system is now up. Time to deploy payload
 #     payload is expected to be .tgz
 #     9438 is the magic port of secondary ssh
-scp -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -P 9438 -p install.sh root@${TARGET}:/tmp/install.sh
-cat ${PAYLOAD} | ssh -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -p 9438 root@${TARGET} /tmp/install.sh -d /dev/sda -a dummy
-ssh -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -p 9438 root@${TARGET} '{ sleep 1; /restart; } > /dev/null &'
+scp -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -P 9438 -p install.sh root@${TARGETMACH}:/tmp/install.sh
+cat ${PAYLOAD} | ssh -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -p 9438 root@${TARGETMACH} /tmp/install.sh -d /dev/sda -a dummy
+ssh -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -p 9438 root@${TARGETMACH} '{ sleep 1; /restart; } > /dev/null &'
 exit 0
