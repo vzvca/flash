@@ -25,7 +25,13 @@ Here is a small description of what's in the repository :
   
 ## Using the script
 
-    ** flash.sh user@target -s stubfs.tgz -i toinstall.tgz
+First the minimal linux system needs to be created. Run the following command which will create a file named stubfs.tgz
+
+    mkstubfs.sh
+
+Then run flash.sh
+
+    flash.sh -t user@target -s stubfs.tgz -p toinstall.tgz
     
 ## Credits
 
