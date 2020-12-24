@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 
 # --------------------------------------------------------------------------
-#  Variante d'exec qui capture les flux de sortie standard
+#  exec variant
 # --------------------------------------------------------------------------
 proc wexec { args } {
     puts "+ $args"
@@ -9,7 +9,7 @@ proc wexec { args } {
 }
 
 # --------------------------------------------------------------------------
-#  Récuperation de la sortie standard d'un programme
+#  Run a program capturing its stdout
 # --------------------------------------------------------------------------
 proc stdout { args } {
     set fin [open "| $args" "r"]
@@ -27,7 +27,7 @@ proc die {msg} {
 }
 
 # --------------------------------------------------------------------------
-#  Arrêt sur erreur
+#  Assert like
 # --------------------------------------------------------------------------
 proc dieif { cond msg } {
     if $cond {
@@ -36,14 +36,14 @@ proc dieif { cond msg } {
 }
 
 # --------------------------------------------------------------------------
-#  Surcharge d'unknown qui execute les commandes shell
+#  Custom unknown which runs its arguments
 # --------------------------------------------------------------------------
 proc unknown { args } {
     wexec {*}$args
 }
 
 # --------------------------------------------------------------------------
-#  Verification de la presence d'un paquet debian
+#  Check is a debian package is installed
 # --------------------------------------------------------------------------
 proc checkpkg { pkg msg } {
     if { [catch {stdout dpkg -l $pkg} err] } {
@@ -52,23 +52,23 @@ proc checkpkg { pkg msg } {
 }
 
 # --------------------------------------------------------------------------
-#   Affiche un message d'aide et quitte
+#   Print error message and infos about program usage then quit
 # --------------------------------------------------------------------------
 proc usage { msg } {
     puts stderr "\n$::argv0 error: $msg"
     puts stderr "\nUsage:"
-    puts stderr "\t$::argv0 -a <rootfs-tar> -d <disk>"
+    puts stderr "\t$::argv0 -f <payload-format> -d <disk>"
     exit 1
 }
 
-# -- verification que le lancement a lieu en root
-dieif {[stdout id -u] != 0 } "Vous devez etre root pour lancer ce script !"
+# -- Check if running as root
+dieif {[stdout id -u] != 0 } "You must be root to run this script !"
 
-# -- verification que les paquets necessaires sont installes
+# -- Check mandatory debian packages
 checkpkg "extlinux"         "extlinux missing !"
 checkpkg "syslinux-common"  "syslinux-common missing !"
 
-# -- parsing des arguments
+# -- parse command line
 set failed [catch {
     array set ::PARAMS $argv
 }]
@@ -76,13 +76,16 @@ if { $failed } {
     usage "Failed to parse command line"
 }
 
-# -- variables globales pour les arguments
-set ::TGZ      $::PARAMS(-a)
-set ::DISK     $::PARAMS(-d)
+# -- global variables
+set failed [catch {
+    set ::FORMAT   $::PARAMS(-f)
+    set ::DISK     $::PARAMS(-d)
+}]
+if { $failed } {
+    usage "Failed to parse command line"
+}
 
-set ::MOUNT /mnt/payload
-
-# -- recuperation de la liste de tous les process qui utilisent old_root
+# -- Get list of process using /old_root
 puts "Listing processes using ${DISK}"
 set tokill [list]
 set procs [glob /proc/*/exe ]
@@ -98,50 +101,64 @@ foreach p $procs {
     }
 }
 
-# -- arret brutal de tous les processus utilisant le disque
-# -- qui va être flashé
+# -- Kill them !
 puts "Killing processes using ${DISK}"
 foreach p $tokill {
     catch { kill -9 $p }
 }
-# -- intentional second pass
+# -- Intentional second pass
 foreach p $tokill {
     catch { kill -9 $p }
 }
 
-# -- effacement du disque
-puts "Erase ${DISK}1 content"
-sync
-set fout [open /proc/sys/vm/drop_caches w]
-puts $fout 3
-close $fout
-umount -l /old_root
-mount ${DISK}1 /old_root
-catch [list rm -rf {*}[glob /old_root/*]]
 
-# -- untar file system
-puts "Unpacking rootfs in ${MOUNT}"
-fconfigure stdin -encoding binary -translation binary
-tar -C /old_root/ -xzv
+if { $FMT eq "tgz" } {
+    # -- Erase disk
+    puts "Erase ${DISK}1 content"
+    sync
+    set fout [open /proc/sys/vm/drop_caches w]
+    puts $fout 3
+    close $fout
+    umount -l /old_root
+    mount ${DISK}1 /old_root
+    catch [list rm -rf {*}[glob /old_root/*]]
 
-# -- install extlinux mbr
-puts "Installing bootloader MBR"
-dd bs=440 conv=notrunc count=1 if=/usr/lib/syslinux/mbr/mbr.bin of=${DISK}
+    # -- untar file system
+    puts "Unpacking rootfs in /old_root"
+    fconfigure stdin -encoding binary -translation binary
+    tar -C /old_root/ -xzv
 
-# -- installation des menus extlinux
-puts "Installing bootloader"
-extlinux --install /old_root
-set fout [open "/old_root/extlinux.conf" "w"]
-puts $fout "default linux"
-puts $fout "timeout 1"
-puts $fout "label linux"
-puts $fout "kernel /boot/vmlinuz-4.9.0-4-amd64"
-puts $fout "append initrd=/boot/initrd.img-4.9.0-4-amd64 root=${DISK}1 net.ifnames=0"
-close $fout
+    # -- install extlinux mbr
+    puts "Installing bootloader MBR"
+    dd bs=440 conv=notrunc count=1 if=/usr/lib/syslinux/mbr/mbr.bin of=${DISK}
 
-# -- syncing
-sync
-umount /old_root
+    # -- installation des menus extlinux
+    puts "Installing bootloader"
+    extlinux --install /old_root
+    set fout [open "/old_root/extlinux.conf" "w"]
+    puts $fout "default linux"
+    puts $fout "timeout 1"
+    puts $fout "label linux"
+    puts $fout "kernel /boot/vmlinuz-4.9.0-4-amd64"
+    puts $fout "append initrd=/boot/initrd.img-4.9.0-4-amd64 root=${DISK}1 net.ifnames=0"
+    close $fout
+
+    # -- syncing
+    sync
+    umount /old_root
+}
+
+if { $FMT eq "img" } {
+    # -- Erase disk
+    puts "Erase ${DISK} content"
+    sync
+    umount -l /old_root
+
+    # -- untar file system
+    puts "Flashing image"
+    fconfigure stdin -encoding binary -translation binary
+    dd of=${DISK} bs=4096 status=progress
+}
 
 # -- leaving
 exit 0

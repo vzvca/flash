@@ -62,6 +62,6 @@ ssh -t ${TARGET} sudo /usr/local/bin/takeover.sh
 #     payload is expected to be .tgz
 #     9438 is the magic port of secondary ssh
 scp -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -P 9438 -p install.sh root@${TARGETMACH}:/tmp/install.sh
-cat ${PAYLOAD} | ssh -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -p 9438 root@${TARGETMACH} /tmp/install.sh -d /dev/sda -a dummy
+cat ${PAYLOAD} | ssh -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -p 9438 root@${TARGETMACH} /tmp/install.sh -d /dev/sda -f tgz
 ssh -i ./ssh/flash_key -o "StrictHostKeyChecking=no" -p 9438 root@${TARGETMACH} '{ sleep 1; /restart; } > /dev/null &'
 exit 0
